@@ -2,7 +2,6 @@ import importlib.abc
 import importlib.machinery
 import importlib.util
 import os
-import platform
 import shutil
 import sys
 import tempfile
@@ -180,9 +179,28 @@ class TestFileSystemLoader:
         t = e.get_template("foo/test.html")
         assert t.filename == str(self.searchpath / "foo" / "test.html")
 
+    def test_error_includes_paths(self, env, filesystem_loader):
+        env.loader = filesystem_loader
+
+        with pytest.raises(TemplateNotFound) as info:
+            env.get_template("missing")
+
+        e_str = str(info.value)
+        assert e_str.startswith("'missing' not found in search path: ")
+
+        filesystem_loader.searchpath.append("other")
+
+        with pytest.raises(TemplateNotFound) as info:
+            env.get_template("missing")
+
+        e_str = str(info.value)
+        assert e_str.startswith("'missing' not found in search paths: ")
+        assert ", 'other'" in e_str
+
 
 class TestModuleLoader:
     archive = None
+    mod_env = None
 
     def compile_down(self, prefix_loader, zip="deflated"):
         log = []
@@ -196,13 +214,14 @@ class TestModuleLoader:
         self.mod_env = Environment(loader=loaders.ModuleLoader(self.archive))
         return "".join(log)
 
-    def teardown(self):
-        if hasattr(self, "mod_env"):
+    def teardown_method(self):
+        if self.archive is not None:
             if os.path.isfile(self.archive):
                 os.remove(self.archive)
             else:
                 shutil.rmtree(self.archive)
             self.archive = None
+            self.mod_env = None
 
     def test_log(self, prefix_loader):
         log = self.compile_down(prefix_loader)
@@ -362,8 +381,8 @@ def test_package_zip_source(package_zip_loader, template, expect):
 
 
 @pytest.mark.xfail(
-    platform.python_implementation() == "PyPy",
-    reason="PyPy's zipimporter doesn't have a '_files' attribute.",
+    sys.implementation.name == "pypy",
+    reason="zipimporter doesn't have a '_files' attribute",
     raises=TypeError,
 )
 def test_package_zip_list(package_zip_loader):
@@ -410,3 +429,8 @@ def test_pep_451_import_hook():
         assert "test.html" in package_loader.list_templates()
     finally:
         sys.meta_path[:] = before
+
+
+def test_package_loader_no_dir() -> None:
+    with pytest.raises(ValueError, match="could not find a 'templates' directory"):
+        PackageLoader("jinja2")

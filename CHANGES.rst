@@ -5,6 +5,95 @@ Version 3.2.0
 
 Unreleased
 
+-   Drop support for Python 3.7.
+-   Use modern packaging metadata with ``pyproject.toml`` instead of ``setup.cfg``.
+    :pr:`1793`
+-   Use ``flit_core`` instead of ``setuptools`` as build backend.
+
+
+Version 3.1.5
+-------------
+
+Released 2024-12-21
+
+-   The sandboxed environment handles indirect calls to ``str.format``, such as
+    by passing a stored reference to a filter that calls its argument.
+    :ghsa:`q2x7-8rv6-6q7h`
+-   Escape template name before formatting it into error messages, to avoid
+    issues with names that contain f-string syntax.
+    :issue:`1792`, :ghsa:`gmj6-6f8f-6699`
+-   Sandbox does not allow ``clear`` and ``pop`` on known mutable sequence
+    types. :issue:`2032`
+-   Calling sync ``render`` for an async template uses ``asyncio.run``.
+    :pr:`1952`
+-   Avoid unclosed ``auto_aiter`` warnings. :pr:`1960`
+-   Return an ``aclose``-able ``AsyncGenerator`` from
+    ``Template.generate_async``. :pr:`1960`
+-   Avoid leaving ``root_render_func()`` unclosed in
+    ``Template.generate_async``. :pr:`1960`
+-   Avoid leaving async generators unclosed in blocks, includes and extends.
+    :pr:`1960`
+-   The runtime uses the correct ``concat`` function for the current environment
+    when calling block references. :issue:`1701`
+-   Make ``|unique`` async-aware, allowing it to be used after another
+    async-aware filter. :issue:`1781`
+-   ``|int`` filter handles ``OverflowError`` from scientific notation.
+    :issue:`1921`
+-   Make compiling deterministic for tuple unpacking in a ``{% set ... %}``
+    call. :issue:`2021`
+-   Fix dunder protocol (`copy`/`pickle`/etc) interaction with ``Undefined``
+    objects. :issue:`2025`
+-   Fix `copy`/`pickle` support for the internal ``missing`` object.
+    :issue:`2027`
+-   ``Environment.overlay(enable_async)`` is applied correctly. :pr:`2061`
+-   The error message from ``FileSystemLoader`` includes the paths that were
+    searched. :issue:`1661`
+-   ``PackageLoader`` shows a clearer error message when the package does not
+    contain the templates directory. :issue:`1705`
+-   Improve annotations for methods returning copies. :pr:`1880`
+-   ``urlize`` does not add ``mailto:`` to values like `@a@b`. :pr:`1870`
+-   Tests decorated with `@pass_context`` can be used with the ``|select``
+    filter. :issue:`1624`
+-   Using ``set`` for multiple assignment (``a, b = 1, 2``) does not fail when the
+    target is a namespace attribute. :issue:`1413`
+-   Using ``set`` in all branches of ``{% if %}{% elif %}{% else %}`` blocks
+    does not cause the variable to be considered initially undefined.
+    :issue:`1253`
+
+
+Version 3.1.4
+-------------
+
+Released 2024-05-05
+
+-   The ``xmlattr`` filter does not allow keys with ``/`` solidus, ``>``
+    greater-than sign, or ``=`` equals sign, in addition to disallowing spaces.
+    Regardless of any validation done by Jinja, user input should never be used
+    as keys to this filter, or must be separately validated first.
+    :ghsa:`h75v-3vvj-5mfj`
+
+
+Version 3.1.3
+-------------
+
+Released 2024-01-10
+
+-   Fix compiler error when checking if required blocks in parent templates are
+    empty. :pr:`1858`
+-   ``xmlattr`` filter does not allow keys with spaces. :ghsa:`h5c8-rqwp-cp95`
+-   Make error messages stemming from invalid nesting of ``{% trans %}`` blocks
+    more helpful. :pr:`1918`
+
+
+Version 3.1.2
+-------------
+
+Released 2022-04-28
+
+-   Add parameters to ``Environment.overlay`` to match ``__init__``.
+    :issue:`1645`
+-   Handle race condition in ``FileSystemBytecodeCache``. :issue:`1654`
+
 
 Version 3.1.1
 -------------
@@ -104,9 +193,8 @@ Released 2021-05-18
     extensions shows more relevant context. :issue:`1429`
 -   Fixed calling deprecated ``jinja2.Markup`` without an argument.
     Use ``markupsafe.Markup`` instead. :issue:`1438`
--   Calling sync ``render`` for an async template uses ``asyncio.run``
-    on Python >= 3.7. This fixes a deprecation that Python 3.10
-    introduces. :issue:`1443`
+-   Calling sync ``render`` for an async template uses ``asyncio.new_event_loop``
+    This fixes a deprecation that Python 3.10 introduces. :issue:`1443`
 
 
 Version 3.0.0
@@ -958,7 +1046,7 @@ Released 2008-07-17, codename Jinjavitus
     evaluates to ``false``.
 -   Improved error reporting for undefined values by providing a
     position.
--   ``filesizeformat`` filter uses decimal prefixes now per default and
+-   ``filesizeformat`` filter uses decimal prefixes now by default and
     can be set to binary mode with the second parameter.
 -   Fixed bug in finalizer
 

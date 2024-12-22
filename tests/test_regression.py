@@ -599,6 +599,7 @@ class TestBug:
 
     def test_markup_and_chainable_undefined(self):
         from markupsafe import Markup
+
         from jinja2.runtime import ChainableUndefined
 
         assert str(Markup(ChainableUndefined())) == ""
@@ -735,6 +736,28 @@ End"""
             "{% endset %}{{ output }}"
         )
         assert tmpl.render() == "hellohellohello"
+
+    def test_pass_context_with_select(self, env):
+        @pass_context
+        def is_foo(ctx, s):
+            assert ctx is not None
+            return s == "foo"
+
+        env.tests["foo"] = is_foo
+        tmpl = env.from_string(
+            "{% for x in ['one', 'foo'] | select('foo') %}{{ x }}{% endfor %}"
+        )
+        assert tmpl.render() == "foo"
+
+
+def test_load_parameter_when_set_in_all_if_branches(env):
+    tmpl = env.from_string(
+        "{% if True %}{{ a.b }}{% set a = 1 %}"
+        "{% elif False %}{% set a = 2 %}"
+        "{% else %}{% set a = 3 %}{% endif %}"
+        "{{ a }}"
+    )
+    assert tmpl.render(a={"b": 0}) == "01"
 
 
 @pytest.mark.parametrize("unicode_char", ["\N{FORM FEED}", "\x85"])

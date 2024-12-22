@@ -1,6 +1,7 @@
 """API and implementations for loading templates from different data
 sources.
 """
+
 import importlib.util
 import os
 import posixpath
@@ -15,7 +16,6 @@ from types import ModuleType
 
 from .exceptions import TemplateNotFound
 from .utils import internalcode
-from .utils import open_if_exists
 
 if t.TYPE_CHECKING:
     from .environment import Environment
@@ -29,7 +29,7 @@ def split_template_path(template: str) -> t.List[str]:
     pieces = []
     for piece in template.split("/"):
         if (
-            os.path.sep in piece
+            os.sep in piece
             or (os.path.altsep and os.path.altsep in piece)
             or piece == os.path.pardir
         ):
@@ -178,7 +178,9 @@ class FileSystemLoader(BaseLoader):
 
     def __init__(
         self,
-        searchpath: t.Union[str, os.PathLike, t.Sequence[t.Union[str, os.PathLike]]],
+        searchpath: t.Union[
+            str, "os.PathLike[str]", t.Sequence[t.Union[str, "os.PathLike[str]"]]
+        ],
         encoding: str = "utf-8",
         followlinks: bool = False,
     ) -> None:
@@ -193,29 +195,35 @@ class FileSystemLoader(BaseLoader):
         self, environment: "Environment", template: str
     ) -> t.Tuple[str, str, t.Callable[[], bool]]:
         pieces = split_template_path(template)
+
         for searchpath in self.searchpath:
             # Use posixpath even on Windows to avoid "drive:" or UNC
             # segments breaking out of the search directory.
             filename = posixpath.join(searchpath, *pieces)
-            f = open_if_exists(filename)
-            if f is None:
-                continue
+
+            if os.path.isfile(filename):
+                break
+        else:
+            plural = "path" if len(self.searchpath) == 1 else "paths"
+            paths_str = ", ".join(repr(p) for p in self.searchpath)
+            raise TemplateNotFound(
+                template,
+                f"{template!r} not found in search {plural}: {paths_str}",
+            )
+
+        with open(filename, encoding=self.encoding) as f:
+            contents = f.read()
+
+        mtime = os.path.getmtime(filename)
+
+        def uptodate() -> bool:
             try:
-                contents = f.read().decode(self.encoding)
-            finally:
-                f.close()
+                return os.path.getmtime(filename) == mtime
+            except OSError:
+                return False
 
-            mtime = os.path.getmtime(filename)
-
-            def uptodate() -> bool:
-                try:
-                    return os.path.getmtime(filename) == mtime
-                except OSError:
-                    return False
-
-            # Use normpath to convert Windows altsep to sep.
-            return contents, os.path.normpath(filename), uptodate
-        raise TemplateNotFound(template)
+        # Use normpath to convert Windows altsep to sep.
+        return contents, os.path.normpath(filename), uptodate
 
     def list_templates(self) -> t.List[str]:
         found = set()
@@ -225,14 +233,38 @@ class FileSystemLoader(BaseLoader):
                 for filename in filenames:
                     template = (
                         os.path.join(dirpath, filename)[len(searchpath) :]
-                        .strip(os.path.sep)
-                        .replace(os.path.sep, "/")
+                        .strip(os.sep)
+                        .replace(os.sep, "/")
                     )
                     if template[:2] == "./":
                         template = template[2:]
                     if template not in found:
                         found.add(template)
         return sorted(found)
+
+
+if sys.version_info >= (3, 13):
+
+    def _get_zipimporter_files(z: t.Any) -> t.Dict[str, object]:
+        try:
+            get_files = z._get_files
+        except AttributeError as e:
+            raise TypeError(
+                "This zip import does not have the required"
+                " metadata to list templates."
+            ) from e
+        return get_files()
+else:
+
+    def _get_zipimporter_files(z: t.Any) -> t.Dict[str, object]:
+        try:
+            files = z._files
+        except AttributeError as e:
+            raise TypeError(
+                "This zip import does not have the required"
+                " metadata to list templates."
+            ) from e
+        return files  # type: ignore[no-any-return]
 
 
 class PackageLoader(BaseLoader):
@@ -274,12 +306,12 @@ class PackageLoader(BaseLoader):
         package_path: "str" = "templates",
         encoding: str = "utf-8",
     ) -> None:
-        package_path = os.path.normpath(package_path).rstrip(os.path.sep)
+        package_path = os.path.normpath(package_path).rstrip(os.sep)
 
         # normpath preserves ".", which isn't valid in zip paths.
         if package_path == os.path.curdir:
             package_path = ""
-        elif package_path[:2] == os.path.curdir + os.path.sep:
+        elif package_path[:2] == os.path.curdir + os.sep:
             package_path = package_path[2:]
 
         self.package_path = package_path
@@ -295,12 +327,11 @@ class PackageLoader(BaseLoader):
         assert loader is not None, "A loader was not found for the package."
         self._loader = loader
         self._archive = None
-        template_root = None
 
         if isinstance(loader, zipimport.zipimporter):
             self._archive = loader.archive
             pkgdir = next(iter(spec.submodule_search_locations))  # type: ignore
-            template_root = os.path.join(pkgdir, package_path).rstrip(os.path.sep)
+            template_root = os.path.join(pkgdir, package_path).rstrip(os.sep)
         else:
             roots: t.List[str] = []
 
@@ -312,18 +343,23 @@ class PackageLoader(BaseLoader):
             elif spec.origin is not None:
                 roots.append(os.path.dirname(spec.origin))
 
+            if not roots:
+                raise ValueError(
+                    f"The {package_name!r} package was not installed in a"
+                    " way that PackageLoader understands."
+                )
+
             for root in roots:
                 root = os.path.join(root, package_path)
 
                 if os.path.isdir(root):
                     template_root = root
                     break
-
-        if template_root is None:
-            raise ValueError(
-                f"The {package_name!r} package was not installed in a"
-                " way that PackageLoader understands."
-            )
+            else:
+                raise ValueError(
+                    f"PackageLoader could not find a {package_path!r} directory"
+                    f" in the {package_name!r} package."
+                )
 
         self._template_root = template_root
 
@@ -373,29 +409,22 @@ class PackageLoader(BaseLoader):
             offset = len(self._template_root)
 
             for dirpath, _, filenames in os.walk(self._template_root):
-                dirpath = dirpath[offset:].lstrip(os.path.sep)
+                dirpath = dirpath[offset:].lstrip(os.sep)
                 results.extend(
-                    os.path.join(dirpath, name).replace(os.path.sep, "/")
+                    os.path.join(dirpath, name).replace(os.sep, "/")
                     for name in filenames
                 )
         else:
-            if not hasattr(self._loader, "_files"):
-                raise TypeError(
-                    "This zip import does not have the required"
-                    " metadata to list templates."
-                )
+            files = _get_zipimporter_files(self._loader)
 
             # Package is a zip file.
-            prefix = (
-                self._template_root[len(self._archive) :].lstrip(os.path.sep)
-                + os.path.sep
-            )
+            prefix = self._template_root[len(self._archive) :].lstrip(os.sep) + os.sep
             offset = len(prefix)
 
-            for name in self._loader._files.keys():  # type: ignore
+            for name in files:
                 # Find names under the templates directory that aren't directories.
-                if name.startswith(prefix) and name[-1] != os.path.sep:
-                    results.append(name[offset:].replace(os.path.sep, "/"))
+                if name.startswith(prefix) and name[-1] != os.sep:
+                    results.append(name[offset:].replace(os.sep, "/"))
 
         results.sort()
         return results
@@ -407,7 +436,7 @@ class DictLoader(BaseLoader):
 
     >>> loader = DictLoader({'index.html': 'source here'})
 
-    Because auto reloading is rarely useful this is disabled per default.
+    Because auto reloading is rarely useful this is disabled by default.
     """
 
     def __init__(self, mapping: t.Mapping[str, str]) -> None:
@@ -590,10 +619,7 @@ class ModuleLoader(BaseLoader):
 
     Example usage:
 
-    >>> loader = ChoiceLoader([
-    ...     ModuleLoader('/path/to/compiled/templates'),
-    ...     FileSystemLoader('/path/to/templates')
-    ... ])
+    >>> loader = ModuleLoader('/path/to/compiled/templates')
 
     Templates can be precompiled with :meth:`Environment.compile_templates`.
     """
@@ -601,7 +627,10 @@ class ModuleLoader(BaseLoader):
     has_source_access = False
 
     def __init__(
-        self, path: t.Union[str, os.PathLike, t.Sequence[t.Union[str, os.PathLike]]]
+        self,
+        path: t.Union[
+            str, "os.PathLike[str]", t.Sequence[t.Union[str, "os.PathLike[str]"]]
+        ],
     ) -> None:
         package_name = f"_jinja2_module_templates_{id(self):x}"
 

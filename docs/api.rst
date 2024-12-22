@@ -515,9 +515,6 @@ environment to compile different code behind the scenes in order to
 handle async and sync code in an asyncio event loop. This has the
 following implications:
 
--   Template rendering requires an event loop to be available to the
-    current thread. :func:`asyncio.get_running_loop` must return an
-    event loop.
 -   The compiled code uses ``await`` for functions and attributes, and
     uses ``async for`` loops. In order to support using both async and
     sync functions in this context, a small wrapper is placed around
@@ -669,8 +666,8 @@ Now it can be used in templates:
 
 .. sourcecode:: jinja
 
-    {{ article.pub_date|datetimeformat }}
-    {{ article.pub_date|datetimeformat("%B %Y") }}
+    {{ article.pub_date|datetime_format }}
+    {{ article.pub_date|datetime_format("%B %Y") }}
 
 Some decorators are available to tell Jinja to pass extra information to
 the filter. The object is passed as the first argument, making the value
@@ -700,10 +697,10 @@ enabled before escaping the input and marking the output safe.
             br = Markup(br)
 
         result = "\n\n".join(
-            f"<p>{br.join(p.splitlines())}<\p>"
+            f"<p>{br.join(p.splitlines())}</p>"
             for p in re.split(r"(?:\r\n|\r(?!\n)|\n){2,}", value)
         )
-        return Markup(result) if autoescape else result
+        return Markup(result) if eval_ctx.autoescape else result
 
 
 .. _writing-tests:
@@ -751,8 +748,8 @@ Now it can be used in templates:
     {% endif %}
 
 Some decorators are available to tell Jinja to pass extra information to
-the filter. The object is passed as the first argument, making the value
-being filtered the second argument.
+the test. The object is passed as the first argument, making the value
+being tested the second argument.
 
 -   :func:`pass_environment` passes the :class:`Environment`.
 -   :func:`pass_eval_context` passes the :ref:`eval-context`.

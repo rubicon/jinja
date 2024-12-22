@@ -196,6 +196,7 @@ class TestFilter:
             ("abc", "0"),
             ("32.32", "32"),
             ("12345678901234567890", "12345678901234567890"),
+            ("1e10000", "0"),
         ),
     )
     def test_int(self, env, value, expect):
@@ -473,6 +474,13 @@ class TestFilter:
         assert 'foo="42"' in out
         assert 'bar="23"' in out
         assert 'blub:blub="&lt;?&gt;"' in out
+
+    @pytest.mark.parametrize("sep", ("\t", "\n", "\f", " ", "/", ">", "="))
+    def test_xmlattr_key_invalid(self, env: Environment, sep: str) -> None:
+        with pytest.raises(ValueError, match="Invalid character"):
+            env.from_string("{{ {key: 'my_class'}|xmlattr }}").render(
+                key=f"class{sep}onclick=alert(1)"
+            )
 
     def test_sort1(self, env):
         tmpl = env.from_string("{{ [2, 3, 1]|sort }}|{{ [2, 3, 1]|sort(true) }}")
@@ -870,4 +878,6 @@ class TestFilter:
 
         with pytest.raises(TemplateRuntimeError, match="No filter named 'f'"):
             t1.render(x=42)
+
+        with pytest.raises(TemplateRuntimeError, match="No filter named 'f'"):
             t2.render(x=42)
